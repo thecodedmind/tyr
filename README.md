@@ -28,10 +28,12 @@ proc promptName(s: var State, i:string)=
     # id 0 is always player actor
     # id 1 is always first zone where the player actor exists
     var player = s.getEntity(0)
-    # setVar sets a local variable for the object, in this case we're taking the functions arguement and using that as the players name
+    # setVar sets a local variable for the object
+    # in this case we're taking the functions arguement and using that as the players name
     player.setVar("name", i)
     
-    # state.focus sets the object as our "player" object. it is what any commands and functions use to decide which object is the main character
+    # state.focus sets the object as our "player" object. 
+    # it is what any commands and functions use to decide which object is the main character
     s.focus(player)
     
     # ln sends new message to the text buffer
@@ -42,16 +44,18 @@ proc promptName(s: var State, i:string)=
     s.override()
 
 proc initRogue*(): State =
-    # creating new state. first arg string is the game id. then takes some boolean flags for wether we enable some core command packages
+    # creating new state. first arg string is the game id. 
+    # then takes some boolean flags for wether we enable some core command packages
     var state = newState("rogue", useNavCommands = true)
     
-    #state has its own global variables, here we set an author name
+    # state has its own global variables, here we set an author name
     state.setVar("author", "TCM")
     
     # getting the starting room, by default its tag is start_1
     var start = state.getEntity("start_1")
     
-    # modifying start room values. once its renamed, its tag changes to room_1, the tag uses its current name, lower-cased, and its id
+    # modifying start room values. 
+    # once its renamed, its tag changes to room_1, the tag uses its name, lower-cased, and its id
     start.setVar("name", "Room")
     start.setVar("description", "Just a room?")
     
@@ -63,9 +67,12 @@ proc initRogue*(): State =
     # can take another actor as zone, will be considered being in that actors "inventory"
     var sw = state.spawnEntity(start, "Sword")
     # vars are arbitrary and can be used for internal checks and the like. but there are some used by the engine.
-    # takeable set to any truthy value decides wether it can be added to the players inventory through the take command
-    # nodrop set to any truthy value decides if player can drop the item from inventory
-    # inventory_limit sets a cap on how many items any container object can store, if null or 0, storage is infinite (default)
+    # takeable 
+    # set to any truthy value decides wether it can be added to the players inventory through the take command
+    # nodrop 
+    # set to any truthy value decides if player can drop the item from inventory
+    # inventory_limit 
+    # sets a cap on how many items any container object can store, if null or 0, storage is infinite (default)
     sw.setVar("takeable", "t")
     discard state.spawnEntity(start, "Spear")
 
@@ -87,10 +94,12 @@ import tyrgames/rogue
 
 # calling the modules setup
 var s = initRogue()
-# prints the current buffer, called after each loop, also called now in case the module sends anything during setup, like intro text.
+# prints the current buffer, called after each loop
+# called now in case the module sends anything during setup, like intro text.
 # function can be redirected to an arbtirary function instead of echoing (API in-progress)
 s.outputBuffer()
-# starts the default loop, in this case a command-like REPL. can be hijacked to use other means of input, such as discord bot messages. (API in-progress)
+# starts the default loop, in this case a command-like REPL. 
+# can be hijacked to use other means of input, such as discord bot messages. (API in-progress)
 s.loop()
 
 ```
