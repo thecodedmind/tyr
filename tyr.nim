@@ -1,9 +1,9 @@
-import json, tables, strutils
-import lib/strplus, lib/seqplus, rdstdin
+import json, tables, strutils, os, rdstdin
+import lib/strplus, lib/seqplus
 export json, tables
-const DIRECTIONS_ALL = @["north", "east", "south", "west", "up", "down", "in", "out", "n", "e", "w", "s", "u", "d", "i", "o"]
-const DIRECTIONS_SHORT = @["n", "e", "w", "s", "u", "d", "i", "o"]
-const DIRECTIONS = @["north", "east", "south", "west", "up", "down", "in", "out"]
+const DIRECTIONS_ALL* = @["north", "east", "south", "west", "up", "down", "in", "out", "n", "e", "w", "s", "u", "d", "i", "o"]
+const DIRECTIONS_SHORT* = @["n", "e", "w", "s", "u", "d", "i", "o"]
+const DIRECTIONS* = @["north", "east", "south", "west", "up", "down", "in", "out"]
 
 proc expandDirection*(s:string):string =
     case s:
@@ -86,10 +86,10 @@ proc invertDirection*(s:string):string =
             
 
 type
-    Entitytype = enum
+    Entitytype* = enum
         actor, zone
     
-    TEnt = object
+    TEnt* = object
         data: JsonNode
         id*: int
         etype*: EntityType
@@ -99,6 +99,7 @@ type
         entities*: Table[string, TEnt] #seq[TEnt]
         variables*: Table[string, string]
         commands*, globals*: Table[string, proc(s:var State, i:seq[string])]
+        events*: Table[string, Table[string, proc(s:var State, i:seq[string])]]
         prompt*, containerKey*: string
         buffer: seq[Table[string, string]]
         cproc: proc(s:var State, i:string)
@@ -108,7 +109,56 @@ type
 include tyrh
 include tyrc
 
-proc saveState*(s: var State, filename:string) =
+proc onEvent*(s: var TEnt, event, fn: string) =
+    if not s.data.hasKey("events"):
+        s.data["events"] = newJObject()
+    
+    s.data["events"][event] = fn.newJString()
+    
+proc onEvent*(st: var State, e: var TEnt, event, fn: string, g:proc (s: var State, i: seq[string])) =
+    if not e.data.hasKey("events"):
+        e.data["events"] = newJObject()
+    
+    e.data["events"][event] = fn.newJString()
+    st.registerGlobal(fn, g)
+    
+proc unsetEvent*(s: var TEnt, event: string) =
+    if s.data.hasKey("events"):
+        s.data["events"][event] = newJString("")
+    
+proc hasEvent*(s: var TEnt, event:string):bool =
+    if s.data.hasKey("events"):
+        if s.data["events"].hasKey(event):
+            if s.data["events"][event].getStr != "":
+                return true
+            else:
+                return false
+        else:
+            return false
+    else:
+        return false
+            
+proc trigger*(state:var State, s: var TEnt, event:string, i:seq[string] = @[], verbose:bool = false) =
+    if s.data.hasKey("events"):
+        if s.data["events"].hasKey(event):
+            let g = s.data["events"][event].getStr
+            state.global(g, i)
+        else:
+            if verbose:
+                echo "BAD TRIGGER : MISSING "&event
+    else:
+        if verbose:
+            echo "BAD TRIGGER : NO EVENTS"
+    
+proc saveState*(s: var State, sv:string = "") =
+    var filename = sv
+    if filename == "":
+        filename = s.game_id&"_auto.tyr"
+    var savedir = getEnv("TYR_SAVEDIR", getHomeDir()&".tyr/")
+    
+    if not existsDir(savedir):
+        createDir(savedir)
+        
     var d = newJObject()
     d["player_tag"] = s.player_tag.newJString()
     d["entities"] = newJArray()
@@ -123,27 +173,38 @@ proc saveState*(s: var State, filename:string) =
         
     for k, v in s.variables.pairs:
         d["variables"][k] = v.newJString()
-    writeFile(filename, d.pretty)
+    writeFile(savedir&filename, d.pretty)
         
-proc loadState*(s: var State, filename:string) =
-    var d = parseFile(filename)
-    s.player_tag = d["player_tag"].getStr
-    s.entities = initTable[string, TEnt]()
-    s.variables = initTable[string, string]()
-    for e in d["entities"].items:
-        var n = TEnt()
-        n.id = e["id"].getInt
-        n.data = e["data"]
-        if e["etype"].getStr == "actor":
-            n.etype = actor
-        else:
-            n.etype = zone
-        s.entities[e["_key"].getStr] = n
+proc loadState*(s: var State, sv:string = "") =
+    var filename = sv
+    if filename == "":
+        filename = s.game_id&"_auto.tyr"
         
-    for k, v in d["variables"].pairs:
-        s.variables[k] = v.getStr
+    var savedir = getEnv("TYR_SAVEDIR", getHomeDir()&".tyr/")
+    
+    if not existsDir(savedir):
+        createDir(savedir)
         
-            
+    if existsFile(savedir&filename):      
+        var d = parseFile(savedir&filename)
+        s.player_tag = d["player_tag"].getStr
+        #s.focus(s.player_tag)
+        s.entities = initTable[string, TEnt]()
+        s.variables = initTable[string, string]()
+        for e in d["entities"].items:
+            var n = TEnt()
+            n.id = e["id"].getInt
+            n.data = e["data"]
+            if e["etype"].getStr == "actor":
+                n.etype = actor
+            else:
+                n.etype = zone
+            s.entities[e["_key"].getStr] = n
+
+        for k, v in d["variables"].pairs:
+            s.variables[k] = v.getStr
+    else:
+        echo "ERROR: Save file does not exist "&savedir&filename
         
 proc ln*(s:var State, key, text:string) =
     s.buffer.add {"name": key, "message": text}.toTable
@@ -431,6 +492,11 @@ proc getEntities*(s:State, z:TEnt, v:string): seq[TEnt] =
             if ent.value("location") == z.id.intToStr():
                 result.add ent
                 
+proc getEntities*(s:State, z:TEnt): seq[TEnt] =
+    for k, ent in s.entities.pairs:
+        if ent.value("location") == z.id.intToStr():
+            result.add ent
+                
 proc getEntity*(s:State, z:TEnt, v:int): TEnt =
     for k, ent in s.entities.pairs:
         if ent.id == v:
@@ -439,6 +505,7 @@ proc getEntity*(s:State, z:TEnt, v:int): TEnt =
     
 proc moveEntity*(s:var State, e: var TEnt, i:var TEnt) =
     if e.etype == actor:
+        var curZone = s.getEntity(e.value("location"))
         for k, ent in s.entities.pairs:
             if e.value("location") == ent.id.intToStr():
                 ent.remVarArray(s.containerKey, e.id.intToStr())
@@ -448,15 +515,18 @@ proc moveEntity*(s:var State, e: var TEnt, i:var TEnt) =
 
         i.addVarArray(s.containerKey, e.id.intToStr())
         e.setVar("location", i.id.intToStr())
-        
+        if e.hasEvent("moved"):
+            s.trigger(e, "moved", @[curZone.id.intToStr(), i.id.intToStr()])
+            
 proc moveDir*(s:var State, ent:var TEnt, dir:string):bool =
-    var curZone = s.getEntity(ent.value("location"))
-    if curZone.value("zone_"&dir) == "":
-        return false
-        
-    var nextZone = s.getEntity(curZone.value("zone_"&dir))
-    s.moveEntity(ent, nextZone)
-    return true
+    if ent.etype == actor:
+        var curZone = s.getEntity(ent.value("location"))
+        if curZone.value("zone_"&dir) == "":
+            return false
+
+        var nextZone = s.getEntity(curZone.value("zone_"&dir))
+        s.moveEntity(ent, nextZone)
+        return true
 
 proc moveDirGetValue*(s:var State, ent:var TEnt, dir:string, v:string = "name"):string =
     var curZone = s.getEntity(ent.value("location"))
@@ -471,5 +541,3 @@ proc spawnEntity*(s:var State, inZone:var TEnt, name:string):TEnt =
     result = s.newActor(name)
     s.moveEntity(result, inZone)
     
-proc takeDamage*(this:var TEnt, dmg:int) =
-    echo this.value("name")&" took dmg."
